@@ -12,6 +12,8 @@ const pino = require('pino');
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
+  fetchLatestBaileysVersion,
   DisconnectReason,
 } = require('@whiskeysockets/baileys');
 
@@ -44,11 +46,17 @@ function jidFromNumber(number) {
 
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { version, isLatest } = await fetchLatestBaileysVersion();
+  console.log(`[whatsapp] גרסת פרוטוקול WhatsApp: ${version.join('.')} (עדכנית: ${isLatest})`);
 
   sock = makeWASocket({
-    auth: state,
+    version,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
     logger,
-    printQRInTerminal: false,
+    getMessage: async () => undefined,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -78,6 +86,7 @@ async function startSock() {
       lastConnectError = lastDisconnect?.error?.message || 'התנתק';
       console.log(`[whatsapp] החיבור נסגר (${lastConnectError}). loggedOut=${loggedOut}`);
       if (!loggedOut) {
+        // ניתוק זמני (לא logout) - מתחברים מחדש אוטומטית
         setTimeout(() => startSock().catch((e) => console.error('שגיאה בחיבור מחדש:', e.message)), 3000);
       } else {
         console.log('[whatsapp] נותקת (logged out) - צריך לסרוק QR חדש דרך /qr.');
@@ -162,6 +171,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/send-test' && req.method === 'GET') {
+      // נתיב בדיקה נוח - מאפשר להפעיל שליחה ישירות מהדפדפן (GET), בלי POST.
       const key = url.searchParams.get('key');
       if (!checkSecret(key)) return sendJson(res, 403, { error: 'FORBIDDEN' });
       if (!isConnected || !sock) {
