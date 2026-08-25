@@ -103,21 +103,30 @@ function checkSecret(providedKey) {
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+  });
   res.end(body);
 }
 
 function sendHtml(res, status, html) {
-  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+  });
   res.end(html);
 }
+
+// גודל מקסימלי לגוף בקשה - הוגדל כדי לאפשר שליחת קבצים (כמו PDF) בקידוד base64.
+const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8MB
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 200000) {
+      if (data.length > MAX_BODY_BYTES) {
         reject(new Error('BODY_TOO_LARGE'));
         req.destroy();
       }
@@ -131,6 +140,16 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = url.pathname;
+
+    // בקשת preflight של CORS (נדרש כדי שדף HTML מקומי יוכל לשלוח קבצים לשרת מהדפדפן)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      return res.end();
+    }
 
     if (pathname === '/health' && req.method === 'GET') {
       return sendJson(res, 200, {
@@ -211,6 +230,52 @@ const server = http.createServer(async (req, res) => {
 
       try {
         await sock.sendMessage(jidFromNumber(to), { text });
+        return sendJson(res, 200, { ok: true, to });
+      } catch (e) {
+        return sendJson(res, 502, { error: 'SEND_FAILED', message: e.message });
+      }
+    }
+
+    if (pathname === '/send-document' && req.method === 'POST') {
+      // שליחת קובץ (למשל PDF) כמסמך בוואטסאפ. מצפה לגוף JSON:
+      // { "fileBase64": "...", "fileName": "report.pdf", "caption": "...", "mimetype": "application/pdf", "to": "..." }
+      const key = url.searchParams.get('key');
+      if (!checkSecret(key)) return sendJson(res, 403, { error: 'FORBIDDEN' });
+
+      if (!isConnected || !sock) {
+        return sendJson(res, 409, { error: 'NOT_CONNECTED', message: 'הוואטסאפ לא מחובר כרגע. יש לסרוק QR דרך /qr.' });
+      }
+
+      let payload;
+      try {
+        const raw = await readBody(req);
+        payload = JSON.parse(raw || '{}');
+      } catch (e) {
+        return sendJson(res, 400, { error: 'BAD_JSON', message: e.message });
+      }
+
+      const { fileBase64, fileName, caption } = payload;
+      const to = payload.to || TARGET_NUMBER;
+      const mimetype = payload.mimetype || 'application/pdf';
+
+      if (!fileBase64 || typeof fileBase64 !== 'string') {
+        return sendJson(res, 400, { error: 'MISSING_FILE', message: 'יש לשלוח { "fileBase64": "..." } בגוף הבקשה.' });
+      }
+
+      let buffer;
+      try {
+        buffer = Buffer.from(fileBase64, 'base64');
+      } catch (e) {
+        return sendJson(res, 400, { error: 'BAD_BASE64', message: e.message });
+      }
+
+      try {
+        await sock.sendMessage(jidFromNumber(to), {
+          document: buffer,
+          mimetype,
+          fileName: fileName || 'report.pdf',
+          caption: caption || undefined,
+        });
         return sendJson(res, 200, { ok: true, to });
       } catch (e) {
         return sendJson(res, 502, { error: 'SEND_FAILED', message: e.message });
