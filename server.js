@@ -161,6 +161,22 @@ const server = http.createServer(async (req, res) => {
         </body></html>`);
     }
 
+    if (pathname === '/send-test' && req.method === 'GET') {
+      const key = url.searchParams.get('key');
+      if (!checkSecret(key)) return sendJson(res, 403, { error: 'FORBIDDEN' });
+      if (!isConnected || !sock) {
+        return sendJson(res, 409, { error: 'NOT_CONNECTED', message: 'הוואטסאפ לא מחובר כרגע.' });
+      }
+      const text = url.searchParams.get('text') || 'הודעת בדיקה ממנטליקס ✅';
+      const to = url.searchParams.get('to') || TARGET_NUMBER;
+      try {
+        await sock.sendMessage(jidFromNumber(to), { text });
+        return sendJson(res, 200, { ok: true, to, text });
+      } catch (e) {
+        return sendJson(res, 502, { error: 'SEND_FAILED', message: e.message });
+      }
+    }
+
     if (pathname === '/send' && req.method === 'POST') {
       const key = url.searchParams.get('key');
       if (!checkSecret(key)) return sendJson(res, 403, { error: 'FORBIDDEN' });
