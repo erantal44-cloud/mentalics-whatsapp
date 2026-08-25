@@ -1,17 +1,18 @@
+json
 {
   "name": "mentalics-whatsapp",
   "version": "1.0.0",
-  "description": "שרת שליחת וואטסאפ פרטי למכון מנטליקס",
+  "description": "שרת שליחת וואטסאפ פרטי למכון מנטליקס - שולח הודעה יומית (דוח בוקר) למספר יעד קבוע דרך חשבון הוואטסאפ הקיים של המכון.",
   "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "qrcode": "^1.5.3",
     "pino": "^9.4.0"
   }
